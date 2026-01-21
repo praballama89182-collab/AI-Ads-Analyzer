@@ -1,5 +1,5 @@
 # ==========================================================
-# amazon_ai — Amazon Search Term AI (PRODUCTION FINAL)
+# amazon_ai — Amazon Search Term AI (FINAL + INSIGHTS)
 # ==========================================================
 
 import streamlit as st
@@ -30,7 +30,6 @@ st.markdown("""
     border: 2px solid #7DD3FC;
     margin-bottom: 16px;
 }
-
 textarea {
     border-radius: 26px !important;
     padding: 18px !important;
@@ -42,23 +41,14 @@ textarea {
 # BENCHMARKS
 # ----------------------------------------------------------
 BENCHMARKS = {
-    "acos": {
-        "excellent": 0.20,
-        "good": 0.30,
-        "poor": 0.60
-    },
-    "roas": {
-        "excellent": 5.0,
-        "good": 3.5,
-        "poor": 1.5
-    }
+    "acos": {"good": 0.30, "poor": 0.60},
+    "roas": {"good": 3.5}
 }
 
 # ----------------------------------------------------------
-# REQUIRED AMAZON SEARCH TERM COLUMNS
+# REQUIRED RAW COLUMNS
 # ----------------------------------------------------------
 REQUIRED_COLUMNS = {
-    "Date",
     "Campaign Name",
     "Customer Search Term",
     "Impressions",
@@ -69,7 +59,7 @@ REQUIRED_COLUMNS = {
 }
 
 # ----------------------------------------------------------
-# LOAD & VALIDATE FILE
+# LOAD FILE
 # ----------------------------------------------------------
 def load_excel(upload):
     df = pd.read_excel(upload)
@@ -101,7 +91,7 @@ def add_metrics(df):
     return df
 
 # ----------------------------------------------------------
-# DECISION ENGINE
+# DECISIONS
 # ----------------------------------------------------------
 def apply_decisions(df):
     df["Decision"] = "Maintain"
@@ -118,27 +108,18 @@ def apply_decisions(df):
     return df
 
 # ----------------------------------------------------------
-# AI CHAT (FAIL-SAFE)
+# AI CHAT (SAFE)
 # ----------------------------------------------------------
 def ask_ai(question, context):
     prompt = f"""
 You are an Amazon Ads Optimization Assistant.
 
 Benchmarks:
-ACOS Excellent <= {BENCHMARKS['acos']['excellent']}
-ACOS Good <= {BENCHMARKS['acos']['good']}
-ACOS Poor >= {BENCHMARKS['acos']['poor']}
+- Good ACOS <= {BENCHMARKS['acos']['good']}
+- Poor ACOS >= {BENCHMARKS['acos']['poor']}
+- Good ROAS >= {BENCHMARKS['roas']['good']}
 
-ROAS Excellent >= {BENCHMARKS['roas']['excellent']}
-ROAS Good >= {BENCHMARKS['roas']['good']}
-ROAS Poor <= {BENCHMARKS['roas']['poor']}
-
-Sales definition:
-- Using 7 Day Advertised SKU Sales only
-
-Rules:
-- Use ONLY provided data
-- Do NOT invent metrics
+Sales used: 7 Day Advertised SKU Sales only.
 
 DATA:
 {context}
@@ -156,14 +137,14 @@ QUESTION:
         return (
             "⚠️ AI service unavailable.\n\n"
             "Benchmarks and decisions are still applied.\n"
-            "Ensure Ollama is running."
+            "Restart Streamlit after confirming Ollama is running."
         )
 
 # ==========================================================
 # UI
 # ==========================================================
 st.title("🧘 amazon_ai")
-st.caption("Amazon Search Term AI — benchmark-aware & raw-sheet accurate")
+st.caption("Amazon Search Term AI — benchmarks, campaigns & search terms")
 
 uploaded = st.file_uploader(
     "Upload Amazon Sponsored Products – Search Term Report (.xlsx)",
@@ -175,78 +156,69 @@ if uploaded:
     df = add_metrics(df)
     df = apply_decisions(df)
 
-    # ---------------- SIDEBAR FILTERS ----------------
-    st.sidebar.header("🔎 Filters")
+    # ------------------------------------------------------
+    # OVERVIEW METRICS
+    # ------------------------------------------------------
+    total_spend = df["Spend"].sum()
+    total_sales = df["7 Day Advertised SKU Sales"].sum()
 
-    campaigns = st.sidebar.multiselect(
-        "Campaign",
-        options=sorted(df["Campaign Name"].unique())
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Spend", f"{total_spend:,.2f}")
+    c2.metric("Advertised Sales", f"{total_sales:,.2f}")
+    c3.metric("ROAS", f"{total_sales / total_spend:.2f}" if total_spend > 0 else "N/A")
+    c4.metric("ACOS", f"{total_spend / total_sales:.2%}" if total_sales > 0 else "N/A")
+
+    # ------------------------------------------------------
+    # TOP GROSSING CAMPAIGNS
+    # ------------------------------------------------------
+    st.subheader("🏆 Top Grossing Campaigns")
+
+    campaign_df = (
+        df.groupby("Campaign Name")
+        .agg({
+            "Spend": "sum",
+            "7 Day Advertised SKU Sales": "sum"
+        })
+        .reset_index()
     )
 
-    decisions = st.sidebar.multiselect(
-        "Decision",
-        options=df["Decision"].unique(),
-        default=list(df["Decision"].unique())
+    campaign_df["ROAS"] = (
+        campaign_df["7 Day Advertised SKU Sales"] /
+        campaign_df["Spend"].replace(0, pd.NA)
+    )
+    campaign_df["ACOS"] = (
+        campaign_df["Spend"] /
+        campaign_df["7 Day Advertised SKU Sales"].replace(0, pd.NA)
     )
 
-    min_roas = st.sidebar.slider(
-        "Min ROAS",
-        min_value=0.0,
-        max_value=10.0,
-        value=0.0,
-        step=0.1
+    st.dataframe(
+        campaign_df.sort_values("7 Day Advertised SKU Sales", ascending=False).head(10),
+        use_container_width=True
     )
 
-    max_acos = st.sidebar.slider(
-        "Max ACOS",
-        min_value=0.0,
-        max_value=1.0,
-        value=1.0,
-        step=0.05
-    )
+    # ------------------------------------------------------
+    # SEARCH TERMS
+    # ------------------------------------------------------
+    st.subheader("🔍 Search Terms (Top Spend)")
 
-    wasted_only = st.sidebar.checkbox("Show only wasted spend (Sales = 0)")
-
-    if campaigns:
-        df = df[df["Campaign Name"].isin(campaigns)]
-
-    df = df[
-        (df["Decision"].isin(decisions)) &
-        (df["ROAS_calc"].fillna(0) >= min_roas) &
-        (df["ACOS_calc"].fillna(0) <= max_acos)
-    ]
-
-    if wasted_only:
-        df = df[(df["Spend"] > 0) & (df["7 Day Advertised SKU Sales"] == 0)]
-
-    # ---------------- SUMMARY ----------------
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Spend", f"{df['Spend'].sum():,.2f}")
-    c2.metric("Advertised Sales", f"{df['7 Day Advertised SKU Sales'].sum():,.2f}")
-    c3.metric(
-        "ROAS",
-        f"{df['7 Day Advertised SKU Sales'].sum() / df['Spend'].sum():.2f}"
-        if df["Spend"].sum() > 0 else "N/A"
-    )
-
-    # ---------------- TABLE ----------------
-    st.subheader("💸 Search Terms (Filtered)")
     st.dataframe(
         df.sort_values("Spend", ascending=False)[
             [
                 "Customer Search Term",
                 "Campaign Name",
                 "Spend",
-                "Clicks",
                 "7 Day Advertised SKU Sales",
+                "ROAS_calc",
                 "ACOS_calc",
                 "Decision"
             ]
-        ],
+        ].head(50),
         use_container_width=True
     )
 
-    # ---------------- AI CHAT ----------------
+    # ------------------------------------------------------
+    # AI CHAT
+    # ------------------------------------------------------
     st.subheader("💬 AI Optimization Assistant")
 
     context = (
@@ -264,7 +236,7 @@ if uploaded:
             st.markdown(msg["content"])
 
     q = st.chat_input(
-        "Ask about ACOS, ROAS, wasted spend, top search terms, next actions…"
+        "Ask about ACOS, ROAS, top campaigns, wasted spend, next actions…"
     )
 
     if q:
