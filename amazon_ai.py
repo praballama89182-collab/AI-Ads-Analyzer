@@ -1,260 +1,185 @@
-# ==========================================================
-# Advertisement Monk.AI — FULL PRODUCTION APP
-# ==========================================================
-
 import streamlit as st
 import pandas as pd
 import plotly.express as px
 import ollama
 import re
 
-# ----------------------------------------------------------
-# PAGE CONFIG
-# ----------------------------------------------------------
-st.set_page_config(
-    page_title="Advertisement Monk.AI",
-    page_icon="🧘",
-    layout="wide"
-)
+# --- 🧘 ZEN PAGE CONFIGURATION ---
+st.set_page_config(page_title="Advertisement Monk.AI", page_icon="🧘", layout="wide")
 
-# ----------------------------------------------------------
-# SOOTHING UI + BIG ROUNDED CHAT
-# ----------------------------------------------------------
+# --- 🎨 SKY BLUE INTERACTIVE UI STYLING ---
 st.markdown("""
-<style>
-.main { background-color: #F8FAFC; }
-.block-container { padding-top: 2rem; }
-
-[data-testid="stChatMessageContainer"] {
-    background: linear-gradient(135deg, #E0F2FE, #F0F9FF);
-    border-radius: 30px;
-    padding: 28px;
-    border: 2px solid #7DD3FC;
-    margin-bottom: 18px;
-    font-size: 16px;
-}
-
-textarea {
-    border-radius: 25px !important;
-    padding: 18px !important;
-    font-size: 16px !important;
-}
-</style>
-""", unsafe_allow_html=True)
-
-# ----------------------------------------------------------
-# BENCHMARKS
-# ----------------------------------------------------------
-BENCHMARKS = {
-    "amazon": {
-        "neg_clicks": 15,
-        "scale_acos": 0.25,
-        "pause_acos": 0.6
-    },
-    "qc": {
-        "scale_roas": 3.0,
-        "pause_roas": 1.2,
-        "min_ctr": 0.012
+    <style>
+    .main { background-color: #F0F9FF; }
+    .stMetric { background-color: #FFFFFF; border: 2px solid #BAE6FD; border-radius: 18px; padding: 25px; }
+    
+    /* Curved Sky Blue Interactive Box for AI Chat */
+    [data-testid="stChatMessageContainer"] {
+        background-color: #E0F2FE !important; 
+        border-radius: 35px !important;
+        padding: 30px !important;
+        border: 3px solid #7DD3FC !important;
+        margin-bottom: 25px !important;
+        box-shadow: 0 10px 25px -5px rgba(12, 74, 110, 0.1);
+        width: 85% !important;
+        margin-left: auto;
+        margin-right: auto;
     }
+    
+    .stChatFloatingInputContainer { background-color: transparent; }
+    h1, h2, h3 { color: #0369A1; font-family: 'Segoe UI', sans-serif; font-weight: 800; }
+    .stTabs [data-baseweb="tab-list"] { gap: 30px; }
+    .stTabs [data-baseweb="tab"] { background-color: #E0F2FE; border-radius: 12px; font-weight: bold; }
+    </style>
+    """, unsafe_allow_html=True)
+
+# --- 🧠 ADS OPTIMIZATION BENCHMARKS (SOP) ---
+BENCHMARKS = {
+    "acos": {"excellent": 20, "good": 30, "acceptable": 40, "poor": 60},
+    "roas": {"excellent": 5.0, "good": 3.5, "acceptable": 2.5, "poor": 1.5},
+    "neg_rules": {"clicks": 15, "acos": 60}
 }
 
-# ----------------------------------------------------------
-# CANONICAL FIELD MAP
-# ----------------------------------------------------------
-FIELD_MAP = {
-    "date": ["date"],
-    "campaign": ["campaign name"],
-    "ad_group": ["ad group name"],
-    "search_term": ["customer search term"],
-    "impressions": ["impressions", "views"],
-    "clicks": ["clicks", "taps"],
-    "spend": ["spend", "ad spend", "cost"],
-    "sales": ["total sales", "sales", "gmv"],
-    "orders": ["total orders", "orders"]
-}
-
-# ----------------------------------------------------------
-# HEADER AUTO-DETECTION FOR MESSY CSVs
-# ----------------------------------------------------------
-def detect_header_row(upload):
-    preview = pd.read_csv(upload, header=None, nrows=30, encoding_errors="ignore")
-    for i, row in preview.iterrows():
-        joined = " ".join(map(str, row.values)).lower()
-        if "impressions" in joined and "click" in joined:
-            return i
-    return 0
-
-# ----------------------------------------------------------
-# FILE LOADER
-# ----------------------------------------------------------
-def load_file(upload):
-    if upload.name.endswith(".csv"):
-        header = detect_header_row(upload)
-        upload.seek(0)
-        df = pd.read_csv(upload, skiprows=header)
-    else:
-        df = pd.read_excel(upload)
-
-    df.columns = [c.strip().lower() for c in df.columns]
-    return df
-
-# ----------------------------------------------------------
-# NORMALIZE COLUMNS (ROBUST)
-# ----------------------------------------------------------
-def normalize_columns(df):
-    def clean(col):
-        col = col.lower().strip()
-        col = re.sub(r"[^a-z ]", "", col)
-        return col
-
-    df.columns = [clean(c) for c in df.columns]
-
-    rename_map = {}
-    for canon, variants in FIELD_MAP.items():
+# --- 🛠️ PRECISION LOAD ENGINE ---
+def robust_load(file):
+    try:
+        content = file.getvalue().decode('utf-8', errors='ignore').splitlines()
+    except:
+        content = file.getvalue().decode('latin1', errors='ignore').splitlines()
+    
+    # 1. Skip Metadata (Looking for real headers)
+    skip = 0
+    header_keywords = ["METRICS_DATE", "CAMPAIGN NAME", "DATE", "SEARCH TERM", "ROW LABELS"]
+    for i, line in enumerate(content[:25]):
+        if any(k in line.upper() for k in header_keywords):
+            skip = i
+            break
+            
+    file.seek(0)
+    # Using engine='python' for malformed CSVs & buffer issues
+    df = pd.read_csv(file, skiprows=skip, encoding_errors='ignore', engine='python')
+    df.columns = df.columns.str.strip()
+    
+    # 2. Deep Scan Mapping (Including trailing spaces in Amazon reports)
+    MAP = {
+        'spend': ['TOTAL_BUDGET_BURNT', 'Spend', 'Cost', 'Ad Spend', 'Sum of Spend', 'Cost Per Click (CPC)'],
+        'sales': ['TOTAL_GMV', '7 Day Total Sales', 'Sales', 'Revenue', 'Sum of 7 Day Total Sales', '7 Day Total Sales '],
+        'orders': ['TOTAL_CONVERSIONS', 'Orders', 'Units', 'Sum of 7 Day Total Orders', '7 Day Total Orders (#)'],
+        'clicks': ['TOTAL_CLICKS', 'Clicks', 'Sum of Clicks'],
+        'imps': ['TOTAL_IMPRESSIONS', 'Impressions', 'Sum of Impressions'],
+        'term': ['KEYWORD', 'Customer Search Term', 'Search Term', 'Row Labels', 'Targeting'],
+        'camp': ['CAMPAIGN_NAME', 'Campaign Name', 'Campaign'],
+        'date': ['METRICS_DATE', 'Date', 'Reporting Date']
+    }
+    
+    for std, vars in MAP.items():
         for col in df.columns:
-            for v in variants:
-                if v in col:
-                    rename_map[col] = canon
-
-    return df.rename(columns=rename_map)
-
-# ----------------------------------------------------------
-# REPORT TYPE DETECTION
-# ----------------------------------------------------------
-def detect_report(df):
-    if "search_term" in df.columns:
-        return "amazon_search_term"
-    if "campaign" in df.columns and "search_term" not in df.columns:
-        return "amazon_campaign"
-    if "gmv" in df.columns or "city" in df.columns:
-        return "quick_commerce"
-    return "unknown"
-
-# ----------------------------------------------------------
-# SAFE METRIC GENERATION
-# ----------------------------------------------------------
-def add_metrics(df):
-    if {"impressions", "clicks"}.issubset(df.columns):
-        df["ctr"] = df["clicks"] / df["impressions"]
-
-    if {"clicks", "spend"}.issubset(df.columns):
-        df["cpc"] = df["spend"] / df["clicks"]
-
-    if {"sales", "spend"}.issubset(df.columns):
-        df["roas"] = df["sales"] / df["spend"]
-        df["acos"] = df["spend"] / df["sales"]
-
+            if any(v.lower() == col.lower() or v.lower() in col.lower() for v in vars):
+                df = df.rename(columns={col: std})
+                break
+    
+    # 3. Secure Cleaning
+    if 'date' in df.columns:
+        df['date'] = pd.to_datetime(df['date'], errors='coerce')
+        df = df.dropna(subset=['date'])
+    
+    for col in ['spend', 'sales', 'orders', 'clicks', 'imps']:
+        if col not in df.columns: df[col] = 0
+        df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+    
+    df['acos'] = df.apply(lambda x: (x['spend']/x['sales']*100) if x['sales'] > 0 else 0, axis=1)
+    df['ctr'] = df.apply(lambda x: (x['clicks']/x['imps']*100) if x['imps'] > 0 else 0, axis=1)
+    
     return df
 
-# ----------------------------------------------------------
-# DECISION ENGINE (SAFE)
-# ----------------------------------------------------------
-def apply_decisions(df, report_type):
-    df["decision"] = "Maintain"
+# --- 🧘 MAIN APP ---
+def main():
+    if "messages" not in st.session_state: st.session_state.messages = []
+    
+    st.sidebar.title("🧘 Advertisement Monk.AI")
+    uploaded_file = st.sidebar.file_uploader("Upload Ad Report", type=["csv"])
+    
+    if uploaded_file:
+        df = robust_load(uploaded_file)
+        
+        # --- DASHBOARD NAVIGATION ---
+        tab_port, tab_camp, tab_term = st.tabs(["🌐 Portfolio", "🎯 Campaigns", "🔍 Search Terms"])
+        
+        # TAB 1: PORTFOLIO & TRENDS
+        with tab_port:
+            st.header("Executive Summary")
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("Total Spend", f"₹{df['spend'].sum():,.1f}")
+            m2.metric("Total Sales", f"₹{df['sales'].sum():,.1f}")
+            total_acos = (df['spend'].sum()/df['sales'].sum()*100) if df['sales'].sum() > 0 else 0
+            m3.metric("Account ACoS", f"{total_acos:.1f}%")
+            m4.metric("Average CTR", f"{(df['clicks'].sum()/df['imps'].sum()*100):.2f}%" if df['imps'].sum() > 0 else "0%")
 
-    if report_type == "amazon_search_term":
-        if {"clicks", "orders"}.issubset(df.columns):
-            df.loc[
-                (df["clicks"] >= BENCHMARKS["amazon"]["neg_clicks"]) &
-                (df["orders"] == 0),
-                "decision"
-            ] = "NEGATIVE"
+            if 'date' in df.columns and len(df) > 0:
+                st.subheader("Weekly Ad Efficiency (Sunday-Monday)")
+                days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+                weekly = df.groupby(df['date'].dt.day_name()).agg({'spend':'sum', 'sales':'sum'}).reindex(days).reset_index()
+                weekly.columns = ['Day', 'Spend', 'Sales'] # Fix for px.bar ValueErrors
+                
+                fig = px.bar(weekly, x='Day', y=['Spend', 'Sales'], barmode='group',
+                             color_discrete_map={'Spend': '#BAE6FD', 'Sales': '#BBF7D0'},
+                             labels={'value': 'Amount (₹)'}, template="plotly_white")
+                st.plotly_chart(fig, use_container_width=True)
 
-        if "acos" in df.columns:
-            df.loc[df["acos"] <= BENCHMARKS["amazon"]["scale_acos"], "decision"] = "SCALE"
-            df.loc[df["acos"] >= BENCHMARKS["amazon"]["pause_acos"], "decision"] = "PAUSE"
+        # TAB 2: CAMPAIGN WISE PERFORMANCE
+        with tab_camp:
+            st.subheader("Campaign Performance Hub")
+            camp_view = df.groupby('camp').agg({'spend':'sum', 'sales':'sum', 'acos':'mean', 'clicks':'sum', 'ctr':'mean'}).sort_values('sales', ascending=False)
+            st.dataframe(camp_view.style.format({'spend': '₹{:.1f}', 'sales': '₹{:.1f}', 'acos': '{:.1f}%', 'ctr': '{:.2f}%'}), use_container_width=True)
 
-    if report_type == "quick_commerce":
-        if "roas" in df.columns:
-            df.loc[df["roas"] >= BENCHMARKS["qc"]["scale_roas"], "decision"] = "SCALE"
-            df.loc[df["roas"] < BENCHMARKS["qc"]["pause_roas"], "decision"] = "PAUSE"
+        # TAB 3: SEARCH TERM INTELLIGENCE
+        with tab_term:
+            if 'term' in df.columns:
+                st.subheader("Search Term Efficiency")
+                term_view = df.groupby('term').agg({'spend':'sum', 'sales':'sum', 'acos':'mean', 'clicks':'sum'}).sort_values('spend', ascending=False).head(50)
+                st.dataframe(term_view.style.format({'acos': '{:.1f}%'}), use_container_width=True)
+            else:
+                st.info("No Search Term data detected.")
 
-        if "ctr" in df.columns:
-            df.loc[df["ctr"] < BENCHMARKS["qc"]["min_ctr"], "decision"] = "OPTIMIZE"
+        # --- 💬 SKY BLUE ROUNDED AI INTERACTIVE BOX ---
+        st.divider()
+        st.subheader("🧘 Advertisement Monk AI Consultant")
+        
+        for msg in st.session_state.messages:
+            with st.chat_message(msg["role"]): st.markdown(msg["content"])
 
-    return df
+        if prompt := st.chat_input("Ex: Show campaigns with ACoS less than 30%"):
+            st.session_state.messages.append({"role": "user", "content": prompt})
+            with st.chat_message("user"): st.markdown(prompt)
 
-# ----------------------------------------------------------
-# AI EXPLANATION LAYER
-# ----------------------------------------------------------
-def ask_ai(question, context):
-    prompt = f"""
-You are an Ads Optimization Assistant.
-Do not invent metrics.
-Use ONLY the provided summary.
+            with st.chat_message("assistant"):
+                # 1. Performance Logic (Less than / More than ACoS)
+                if "acos" in prompt.lower() and any(x in prompt for x in ["<", ">", "less", "more", "above", "below"]):
+                    try:
+                        val = [int(s) for s in re.findall(r'\d+', prompt)][0]
+                        filtered = df[df['acos'] < val] if any(x in prompt.lower() for x in ["less", "below", "<"]) else df[df['acos'] > val]
+                        # Final results table as requested
+                        res = filtered[['camp', 'acos', 'ctr', 'clicks', 'sales', 'spend']].drop_duplicates().sort_values('acos')
+                        st.markdown(f"**The Monk found {len(res)} campaigns matching `{prompt}`:**")
+                        st.dataframe(res.style.format({'acos': '{:.1f}%', 'ctr': '{:.2f}%'}), use_container_width=True)
+                        st.session_state.messages.append({"role": "assistant", "content": f"Evaluated and displayed {len(res)} campaigns."})
+                    except:
+                        st.error("Please specify a numeric threshold (e.g., 'less than 30%').")
+                
+                # 2. Optimization Logic (Recommendations)
+                elif any(x in prompt.lower() for x in ["recommend", "optimize", "advice"]):
+                    context = df.nlargest(10, 'spend').to_string()
+                    response = ollama.chat(model='llama3.2', messages=[
+                        {"role": "system", "content": f"You are Advertisement Monk.AI. Use benchmarks: {BENCHMARKS}. Analyze data and provide 3-4 specific optimization steps."},
+                        {"role": "user", "content": f"Data Summary:\n{context}\n\nQuestion: {prompt}"}
+                    ])
+                    st.markdown(response['message']['content'])
+                    st.session_state.messages.append({"role": "assistant", "content": response['message']['content']})
+                else:
+                    st.write("I am ready to audit your campaign ACoS or search terms. Ask me to find specific performance ranges or optimization tips!")
 
-SUMMARY:
-{context}
-
-QUESTION:
-{question}
-
-Explain decisions clearly and suggest actions.
-"""
-    response = ollama.chat(
-        model="llama3",
-        messages=[{"role": "user", "content": prompt}]
-    )
-    return response["message"]["content"]
-
-# ==========================================================
-# UI
-# ==========================================================
-st.title("🧘 Advertisement Monk.AI")
-st.caption("Upload any ads report. Understand. Optimize. Decide.")
-
-uploaded = st.file_uploader(
-    "Upload Amazon or Quick Commerce Ads Report",
-    type=["csv", "xlsx"]
-)
-
-if uploaded:
-    df = load_file(uploaded)
-    df = normalize_columns(df)
-    report_type = detect_report(df)
-    df = add_metrics(df)
-    df = apply_decisions(df, report_type)
-
-    st.subheader("📊 Performance Overview")
-    c1, c2, c3 = st.columns(3)
-
-    c1.metric("Spend", f"{df['spend'].sum():,.2f}" if "spend" in df.columns else "N/A")
-    c2.metric("Sales / GMV", f"{df['sales'].sum():,.2f}" if "sales" in df.columns else "N/A")
-
-    if {"sales", "spend"}.issubset(df.columns):
-        c3.metric("ROAS", f"{df['sales'].sum()/df['spend'].sum():.2f}")
     else:
-        c3.metric("ROAS", "N/A")
+        st.info("🙏 Namaste. Upload your Amazon or Quick-Commerce report to activate the Monk.")
 
-    st.subheader("📈 Decision Distribution")
-    st.plotly_chart(
-        px.histogram(df, x="decision", color="decision"),
-        use_container_width=True
-    )
-
-    st.subheader("🔍 Data Preview")
-    st.dataframe(df.head(50), use_container_width=True)
-
-    # ------------------------------------------------------
-    # AI CHAT
-    # ------------------------------------------------------
-    st.subheader("💬 Ads Intelligence Assistant")
-
-    summary_cols = [c for c in ["spend", "sales", "orders"] if c in df.columns]
-    context = df.groupby("decision")[summary_cols].sum().reset_index().to_string(index=False)
-
-    if "chat" not in st.session_state:
-        st.session_state.chat = []
-
-    for msg in st.session_state.chat:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
-
-    question = st.chat_input("Ask about scaling, negatives, wasted spend, next actions…")
-
-    if question:
-        st.session_state.chat.append({"role": "user", "content": question})
-        with st.chat_message("assistant"):
-            answer = ask_ai(question, context)
-            st.markdown(answer)
-            st.session_state.chat.append({"role": "assistant", "content": answer})
+if __name__ == "__main__":
+    main()
