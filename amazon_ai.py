@@ -39,7 +39,7 @@ textarea {
 """, unsafe_allow_html=True)
 
 # ----------------------------------------------------------
-# BENCHMARKS (LOCKED LOGIC)
+# BENCHMARKS
 # ----------------------------------------------------------
 BENCHMARKS = {
     "acos": {
@@ -55,7 +55,7 @@ BENCHMARKS = {
 }
 
 # ----------------------------------------------------------
-# REQUIRED RAW AMAZON COLUMNS (STRIPPED)
+# REQUIRED AMAZON SEARCH TERM COLUMNS
 # ----------------------------------------------------------
 REQUIRED_COLUMNS = {
     "Date",
@@ -106,14 +106,12 @@ def add_metrics(df):
 def apply_decisions(df):
     df["Decision"] = "Maintain"
 
-    # Negative rule
     df.loc[
         (df["Clicks"] >= 15) &
         (df["7 Day Total Orders (#)"] == 0),
         "Decision"
     ] = "NEGATIVE"
 
-    # Scale / Pause
     df.loc[df["ACOS_calc"] <= BENCHMARKS["acos"]["good"], "Decision"] = "SCALE"
     df.loc[df["ACOS_calc"] >= BENCHMARKS["acos"]["poor"], "Decision"] = "PAUSE"
 
@@ -137,14 +135,12 @@ ROAS Poor <= {BENCHMARKS['roas']['poor']}
 
 Sales definition:
 - Using 7 Day Advertised SKU Sales only
-- Halo sales excluded
 
 Rules:
 - Use ONLY provided data
 - Do NOT invent metrics
-- Explain decisions clearly
 
-DATA SUMMARY:
+DATA:
 {context}
 
 QUESTION:
@@ -160,7 +156,7 @@ QUESTION:
         return (
             "⚠️ AI service unavailable.\n\n"
             "Benchmarks and decisions are still applied.\n"
-            "Please ensure Ollama is running."
+            "Ensure Ollama is running."
         )
 
 # ==========================================================
@@ -193,8 +189,21 @@ if uploaded:
         default=list(df["Decision"].unique())
     )
 
-    min_roas = st.sidebar.value_slider("Min ROAS", 0.0, 10.0, 0.0)
-    max_acos = st.sidebar.value_slider("Max ACOS", 0.0, 1.0, 1.0)
+    min_roas = st.sidebar.slider(
+        "Min ROAS",
+        min_value=0.0,
+        max_value=10.0,
+        value=0.0,
+        step=0.1
+    )
+
+    max_acos = st.sidebar.slider(
+        "Max ACOS",
+        min_value=0.0,
+        max_value=1.0,
+        value=1.0,
+        step=0.05
+    )
 
     wasted_only = st.sidebar.checkbox("Show only wasted spend (Sales = 0)")
 
